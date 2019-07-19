@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -15,6 +16,7 @@ const (
 )
 
 type Exporter struct {
+	sync.Mutex
 	up                    prometheus.Gauge
 	info                  *prometheus.GaugeVec
 	deviceCount           prometheus.Gauge
@@ -41,7 +43,7 @@ func main() {
 
 	http.Handle("/metrics", promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`<html>
+		_, _ = w.Write([]byte(`<html>
              <head><title>NVML Exporter</title></head>
              <body>
              <h1>NVML Exporter</h1>
@@ -161,6 +163,9 @@ func NewExporter() *Exporter {
 }
 
 func (e *Exporter) Collect(metrics chan<- prometheus.Metric) {
+	// Only one Collect call in progress at a time.
+	e.Lock()
+	defer e.Unlock()
 	data, err := collectMetrics()
 	if err != nil {
 		log.Printf("Failed to collect metrics: %s\n", err)
