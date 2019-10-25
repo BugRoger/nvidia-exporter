@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/mindprince/gonvml"
 	"log"
 	"net/http"
 
@@ -36,6 +37,11 @@ func main() {
 		metricsPath   = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
 	)
 	flag.Parse()
+
+	if err := gonvml.Initialize(); err != nil {
+		log.Fatalf("Couldn't initialize gonvml: %v. Make sure NVML is in the shared library search path.", err)
+	}
+	defer gonvml.Shutdown()
 
 	prometheus.MustRegister(NewExporter())
 
