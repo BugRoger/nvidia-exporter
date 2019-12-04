@@ -5,11 +5,10 @@ import (
 	"time"
 
 	"github.com/mindprince/gonvml"
+	log "github.com/sirupsen/logrus"
 )
 
-var (
-	averageDuration = 10 * time.Second
-)
+var averageDuration = 10 * time.Second
 
 type Metrics struct {
 	Version string
@@ -34,13 +33,16 @@ type Device struct {
 
 func collectMetrics() (*Metrics, error) {
 	if err := gonvml.Initialize(); err != nil {
+		log.Errorf("Failed to initialize gonvml.")
+		// Return out, since this failure to initialize
+		// will prevent collection.
 		return nil, err
 	}
 	defer gonvml.Shutdown()
 
 	version, err := gonvml.SystemDriverVersion()
 	if err != nil {
-		return nil, err
+		log.Warnf("Failed to get SystemDriverVersion.")
 	}
 
 	metrics := &Metrics{
@@ -49,64 +51,60 @@ func collectMetrics() (*Metrics, error) {
 
 	numDevices, err := gonvml.DeviceCount()
 	if err != nil {
+		log.Errorf("Failed to get DeviceCount")
+		// Return out, since this failure to obtain
+		// device count will prevent collection.
 		return nil, err
 	}
 
 	for index := 0; index < int(numDevices); index++ {
 		device, err := gonvml.DeviceHandleByIndex(uint(index))
 		if err != nil {
+			log.Errorf("Failed to get DeviceHandleByIndex")
+			// Return out, since this failure to obtain
+			// DeviceHandleByIndex will prevent collection.
 			return nil, err
 		}
 
 		uuid, err := device.UUID()
 		if err != nil {
+			log.Errorf("Failed to get deviceUUID")
+			// Return out, since this failure to obtain
+			// failure to get this metrics is likely.
+			// is of a problem.
 			return nil, err
 		}
 
 		name, err := device.Name()
 		if err != nil {
+			log.Errorf("Failed to get deviceName")
+			// Return out, since this failure to obtain
+			// failure to get this metrics is likely.
+			// is of a problem.
 			return nil, err
 		}
 
 		minorNumber, err := device.MinorNumber()
 		if err != nil {
+			log.Errorf("Failed to get MinorNumber")
+			// Return out, since this failure to obtain
+			// MinorNumber will potentially cause conlficts.
 			return nil, err
 		}
 
-		temperature, err := device.Temperature()
-		if err != nil {
-			return nil, err
-		}
+		temperature, temperatureErr := device.Temperature()
 
-		powerUsage, err := device.PowerUsage()
-		if err != nil {
-			return nil, err
-		}
+		powerUsage, powerUsageErr := device.PowerUsage()
 
-		powerUsageAverage, err := device.AveragePowerUsage(averageDuration)
-		if err != nil {
-			return nil, err
-		}
+		powerUsageAverage, powerUsageAverageErr := device.AveragePowerUsage(averageDuration)
 
-		fanSpeed, err := device.FanSpeed()
-		if err != nil {
-			return nil, err
-		}
+		fanSpeed, fanSpeedErr := device.FanSpeed()
 
-		memoryTotal, memoryUsed, err := device.MemoryInfo()
-		if err != nil {
-			return nil, err
-		}
+		memoryTotal, memoryUsed, memoryInfoErr := device.MemoryInfo()
 
-		utilizationGPU, utilizationMemory, err := device.UtilizationRates()
-		if err != nil {
-			return nil, err
-		}
+		utilizationGPU, utilizationMemory, utilizationRatesErr := device.UtilizationRates()
 
-		utilizationGPUAverage, err := device.AverageGPUUtilization(averageDuration)
-		if err != nil {
-			return nil, err
-		}
+		utilizationGPUAverage, utilizationGPUAverageErr := device.AverageGPUUtilization(averageDuration)
 
 		metrics.Devices = append(metrics.Devices,
 			&Device{
@@ -114,17 +112,26 @@ func collectMetrics() (*Metrics, error) {
 				MinorNumber:           strconv.Itoa(int(minorNumber)),
 				Name:                  name,
 				UUID:                  uuid,
-				Temperature:           float64(temperature),
-				PowerUsage:            float64(powerUsage),
-				PowerUsageAverage:     float64(powerUsageAverage),
-				FanSpeed:              float64(fanSpeed),
-				MemoryTotal:           float64(memoryTotal),
-				MemoryUsed:            float64(memoryUsed),
-				UtilizationMemory:     float64(utilizationMemory),
-				UtilizationGPU:        float64(utilizationGPU),
-				UtilizationGPUAverage: float64(utilizationGPUAverage),
+				Temperature:           checkError(temperatureErr, float64(temperature), index, "Temperature"),
+				PowerUsage:            checkError(powerUsageErr, float64(powerUsage), index, "PowerUsage"),
+				PowerUsageAverage:     checkError(powerUsageAverageErr, float64(powerUsageAverage), index, "PowerUsageAverage"),
+				FanSpeed:              checkError(fanSpeedErr, float64(fanSpeed), index, "FanSpeed"),
+				MemoryTotal:           checkError(memoryInfoErr, float64(memoryTotal), index, "MemoryTotal"),
+				MemoryUsed:            checkError(memoryInfoErr, float64(memoryUsed), index, "MemoryUsed"),
+				UtilizationMemory:     checkError(utilizationRatesErr, float64(utilizationMemory), index, "UtilizationMemory"),
+				UtilizationGPU:        checkError(utilizationRatesErr, float64(utilizationGPU), index, "UtilizationGPU"),
+				UtilizationGPUAverage: checkError(utilizationGPUAverageErr, float64(utilizationGPUAverage), index, "UtilizationGPUAverage"),
 			})
 	}
-
 	return metrics, nil
+}
+
+// This function is used to check if error is returned
+// if so set float64 to -1
+func checkError(err error, value float64, index int, metric string) float64 {
+	if err != nil {
+		log.Debugf("Unable to collect metrics for %s for device %d: %s", metric, index, err)
+		return -1
+	}
+	return value
 }
