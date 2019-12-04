@@ -2,17 +2,14 @@ package main
 
 import (
 	"flag"
-	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	log "github.com/sirupsen/logrus"
 )
 
-const (
-	namespace = "nvidia"
-)
+const namespace = "nvidia"
 
 type Exporter struct {
 	up                    prometheus.Gauge
@@ -32,25 +29,44 @@ type Exporter struct {
 
 func main() {
 	var (
-		listenAddress = flag.String("web.listen-address", ":9401", "Address to listen on for web interface and telemetry.")
+		level         = flag.String("log.level", "info", "Set the output log level")
+		listenAddress = flag.String("web.listen-address", "0.0.0.0:9401", "Address to listen on for web interface and telemetry.")
 		metricsPath   = flag.String("web.telemetry-path", "/metrics", "Path under which to expose metrics.")
 	)
 	flag.Parse()
+	setLogLevel(*level)
 
 	prometheus.MustRegister(NewExporter())
 
-	http.Handle("/metrics", promhttp.Handler())
+	http.Handle(*metricsPath, promhttp.Handler())
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`<html>
              <head><title>NVML Exporter</title></head>
              <body>
              <h1>NVML Exporter</h1>
              <p><a href='` + *metricsPath + `'>Metrics</a></p>
+	     <h2>More information:</h2>
+	     <p><a href="https://github.com/BugRoger/nvidia-exporter">github.com/BugRoger/nvidia-exporter</a></p>
              </body>
              </html>`))
 	})
-	fmt.Println("Starting HTTP server on", *listenAddress)
+	log.Infof("Starting HTTP server on %s", *listenAddress)
 	log.Fatal(http.ListenAndServe(*listenAddress, nil))
+}
+
+func setLogLevel(level string) {
+	switch level {
+	case "error":
+		log.SetLevel(log.ErrorLevel)
+	case "warn":
+		log.SetLevel(log.WarnLevel)
+	case "info":
+		log.SetLevel(log.InfoLevel)
+	case "debug":
+		log.SetLevel(log.DebugLevel)
+	default:
+		log.Warnln("Unrecognized minimum log level; using 'info' as default")
+	}
 }
 
 func NewExporter() *Exporter {
@@ -160,10 +176,21 @@ func NewExporter() *Exporter {
 	}
 }
 
+// This function is used to check if metric
+// value is valid; we expect nothing less than 0
+// gonvml returns uint data type
+func checkMetric(value float64) bool {
+	if value < 0 {
+		return false
+	} else {
+		return true
+	}
+}
+
 func (e *Exporter) Collect(metrics chan<- prometheus.Metric) {
 	data, err := collectMetrics()
 	if err != nil {
-		log.Printf("Failed to collect metrics: %s\n", err)
+		log.Errorf("Failed to collect metrics: %s", err)
 		e.up.Set(0)
 		e.up.Collect(metrics)
 		return
@@ -176,15 +203,33 @@ func (e *Exporter) Collect(metrics chan<- prometheus.Metric) {
 	for i := 0; i < len(data.Devices); i++ {
 		d := data.Devices[i]
 		e.deviceInfo.WithLabelValues(d.Index, d.MinorNumber, d.Name, d.UUID).Set(1)
-		e.fanSpeed.WithLabelValues(d.MinorNumber).Set(d.FanSpeed)
-		e.memoryTotal.WithLabelValues(d.MinorNumber).Set(d.MemoryTotal)
-		e.memoryUsed.WithLabelValues(d.MinorNumber).Set(d.MemoryUsed)
-		e.powerUsage.WithLabelValues(d.MinorNumber).Set(d.PowerUsage)
-		e.powerUsageAverage.WithLabelValues(d.MinorNumber).Set(d.PowerUsageAverage)
-		e.temperatures.WithLabelValues(d.MinorNumber).Set(d.Temperature)
-		e.utilizationGPU.WithLabelValues(d.MinorNumber).Set(d.UtilizationGPU)
-		e.utilizationGPUAverage.WithLabelValues(d.MinorNumber).Set(d.UtilizationGPUAverage)
-		e.utilizationMemory.WithLabelValues(d.MinorNumber).Set(d.UtilizationMemory)
+		if checkMetric(d.FanSpeed) {
+			e.fanSpeed.WithLabelValues(d.MinorNumber).Set(d.FanSpeed)
+		}
+		if checkMetric(d.MemoryTotal) {
+			e.memoryTotal.WithLabelValues(d.MinorNumber).Set(d.MemoryTotal)
+		}
+		if checkMetric(d.MemoryUsed) {
+			e.memoryUsed.WithLabelValues(d.MinorNumber).Set(d.MemoryUsed)
+		}
+		if checkMetric(d.PowerUsage) {
+			e.powerUsage.WithLabelValues(d.MinorNumber).Set(d.PowerUsage)
+		}
+		if checkMetric(d.PowerUsageAverage) {
+			e.powerUsageAverage.WithLabelValues(d.MinorNumber).Set(d.PowerUsageAverage)
+		}
+		if checkMetric(d.Temperature) {
+			e.temperatures.WithLabelValues(d.MinorNumber).Set(d.Temperature)
+		}
+		if checkMetric(d.UtilizationGPU) {
+			e.utilizationGPU.WithLabelValues(d.MinorNumber).Set(d.UtilizationGPU)
+		}
+		if checkMetric(d.UtilizationGPUAverage) {
+			e.utilizationGPUAverage.WithLabelValues(d.MinorNumber).Set(d.UtilizationGPUAverage)
+		}
+		if checkMetric(d.UtilizationMemory) {
+			e.utilizationMemory.WithLabelValues(d.MinorNumber).Set(d.UtilizationMemory)
+		}
 	}
 
 	e.deviceCount.Collect(metrics)
