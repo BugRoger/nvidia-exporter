@@ -33,10 +33,6 @@ type Device struct {
 }
 
 func collectMetrics() (*Metrics, error) {
-	if err := gonvml.Initialize(); err != nil {
-		return nil, err
-	}
-	defer gonvml.Shutdown()
 
 	version, err := gonvml.SystemDriverVersion()
 	if err != nil {

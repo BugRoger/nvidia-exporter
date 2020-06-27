@@ -149,3 +149,7 @@ nvidia_utilization_memory{minor="3"} 75
 nvidia_utilization_memory{minor="4"} 78
 nvidia_utilization_memory{minor="5"} 76
 ```
+
+## Dashboard grafana
+
+![](dashboard-example.png)
